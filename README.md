@@ -1,4 +1,4 @@
-Drag Drop Puzzle Game
+#Drag Drop Puzzle Game
 A small, accessible, touch‑friendly JavaScript puzzle where players drag numbered pieces into matching slots. Built with plain HTML, CSS, and JavaScript, the game includes pointer/touch support, keyboard controls, scoring, and progressive levels so you can extend or embed it quickly.
 
 Features
