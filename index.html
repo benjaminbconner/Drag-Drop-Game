@@ -1,0 +1,239 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Drag Drop Game</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:20px}
+  .board{display:flex;gap:20px;align-items:flex-start}
+  .zone{width:260px;min-height:220px;border:2px dashed #888;padding:12px;border-radius:8px}
+  .slot{width:100%;height:60px;margin:8px 0;background:#fff;border:1px dashed #bbb;display:flex;align-items:center;justify-content:center}
+  .piece{width:80px;height:80px;margin:8px;background:#f7f7f7;border:1px solid #ccc;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:24px;touch-action:none;cursor:grab}
+  .dragging{opacity:0.6}
+  .focus{outline:3px solid #06f}
+</style>
+</head>
+<body>
+<h2>Match the numbers into slots</h2>
+<div>
+  <strong>Level:</strong> <span id="level">1</span>
+  &nbsp; <strong>Score:</strong> <span id="score">0</span>
+  &nbsp; <button id="restart">Restart</button>
+</div>
+
+<div class="board">
+  <div id="slots" class="zone" aria-label="Target slots" role="list"></div>
+  <div id="pieces" class="zone" aria-label="Pieces" role="list"></div>
+</div>
+
+<div id="msg" aria-live="polite"></div>
+
+<script>
+/* Config */
+const MAX_LEVEL = 5;
+let level = 1, score = 0;
+
+/* Helpers */
+const rand = n => Math.floor(Math.random()*n)+1;
+
+/* Build level: slots use class "slot" only; pieces use class "piece" only */
+function setup(level){
+  const slots = document.getElementById('slots');
+  const pieces = document.getElementById('pieces');
+  slots.innerHTML = ''; pieces.innerHTML = '';
+  const count = Math.min(3 + level, 8);
+  const ids = Array.from({length:count},(_,i)=>i+1);
+
+  // create slots (empty containers)
+  ids.forEach(id=>{
+    const s = document.createElement('div');
+    s.className='slot';
+    s.tabIndex=0;
+    s.dataset.id = String(id);
+    s.setAttribute('role','listitem');
+    s.setAttribute('aria-label','Slot '+id);
+    slots.appendChild(s);
+  });
+
+  // create pieces shuffled
+  ids.sort(()=>Math.random()-0.5).forEach(id=>{
+    const p = document.createElement('div');
+    p.className='piece';
+    p.draggable=true;
+    p.tabIndex=0;
+    p.dataset.id = String(id);
+    p.id = 'p'+id;
+    p.textContent = id;
+    p.setAttribute('role','listitem');
+    p.setAttribute('aria-grabbed','false');
+    pieces.appendChild(p);
+  });
+
+  document.getElementById('level').textContent = level;
+}
+
+/* Pointer-based drag (works for mouse & touch) */
+let dragEl = null;
+let dragPointerId = null;
+
+document.addEventListener('pointerdown', e=>{
+  const t = e.target.closest('.piece');
+  if(!t) return;
+  dragEl = t;
+  dragPointerId = e.pointerId;
+  t.setPointerCapture(dragPointerId);
+  t.classList.add('dragging');
+});
+
+document.addEventListener('pointerup', e=>{
+  if(!dragEl) return;
+  dragEl.classList.remove('dragging');
+  try { dragEl.releasePointerCapture(dragPointerId); } catch(_) {}
+  // find drop target under pointer
+  const drop = document.elementFromPoint(e.clientX, e.clientY)?.closest('.slot');
+  if(drop && !drop.firstElementChild){
+    drop.appendChild(dragEl);
+    updateAfterDrop(dragEl, drop);
+  }
+  dragEl = null;
+  dragPointerId = null;
+});
+
+/* Native drag for desktop mouse */
+document.addEventListener('dragstart', e=>{
+  const t = e.target;
+  if(t.classList.contains('piece')){
+    e.dataTransfer.setData('text/plain', t.id);
+    e.dataTransfer.effectAllowed='move';
+    t.setAttribute('aria-grabbed','true');
+    t.classList.add('dragging');
+  }
+});
+document.addEventListener('dragend', e=>{
+  const t = e.target;
+  if(t.classList && t.classList.contains('piece')){
+    t.setAttribute('aria-grabbed','false');
+    t.classList.remove('dragging');
+  }
+});
+
+/* Allow drop on slots and pieces container */
+document.addEventListener('dragover', e=>{
+  // allow drop only when over a slot or the pieces container
+  const overSlot = e.target.closest('.slot');
+  const overPieces = e.target.closest('#pieces');
+  if(overSlot || overPieces) e.preventDefault();
+});
+
+document.addEventListener('drop', e=>{
+  e.preventDefault();
+  const id = e.dataTransfer.getData('text/plain');
+  const node = document.getElementById(id);
+  if(!node) return;
+  const dropSlot = e.target.closest('.slot');
+  const dropPieces = e.target.closest('#pieces');
+  if(dropSlot && !dropSlot.firstElementChild){
+    dropSlot.appendChild(node);
+    updateAfterDrop(node, dropSlot);
+  } else if(dropPieces){
+    // allow returning to pieces area
+    dropPieces.appendChild(node);
+  }
+});
+
+/* Keyboard accessibility: pick up with Enter/Space, move focus to slot, drop with Enter/Space */
+let heldPiece = null;
+
+document.addEventListener('keydown', e=>{
+  const el = document.activeElement;
+  // pick up / drop piece
+  if(el && el.classList.contains('piece')){
+    if(e.key === 'Enter' || e.key === ' '){
+      e.preventDefault();
+      if(!heldPiece){
+        // pick up
+        heldPiece = el;
+        el.setAttribute('aria-grabbed','true');
+        el.classList.add('dragging');
+        document.getElementById('msg').textContent = 'Picked up ' + el.textContent;
+      } else if(heldPiece === el){
+        // drop back to pieces container
+        heldPiece.setAttribute('aria-grabbed','false');
+        heldPiece.classList.remove('dragging');
+        document.getElementById('pieces').appendChild(heldPiece);
+        heldPiece = null;
+      }
+      return;
+    }
+  }
+
+  // if a slot is focused and we have a held piece, drop into that slot
+  if(heldPiece && el && el.classList.contains('slot') && (e.key === 'Enter' || e.key === ' ')){
+    e.preventDefault();
+    if(!el.firstElementChild){
+      el.appendChild(heldPiece);
+      heldPiece.setAttribute('aria-grabbed','false');
+      heldPiece.classList.remove('dragging');
+      updateAfterDrop(heldPiece, el);
+      heldPiece = null;
+    } else {
+      document.getElementById('msg').textContent = 'Slot occupied';
+    }
+    return;
+  }
+
+  // simple focus navigation with arrow keys between interactive items
+  if(el && (el.classList.contains('piece') || el.classList.contains('slot'))){
+    const all = Array.from(document.querySelectorAll('.piece, .slot'));
+    const i = all.indexOf(el);
+    if(i >= 0){
+      if(e.key === 'ArrowRight' || e.key === 'ArrowDown'){
+        e.preventDefault();
+        const next = all[(i+1) % all.length];
+        next.focus();
+        next.classList.add('focus');
+        setTimeout(()=>next.classList.remove('focus'),200);
+      } else if(e.key === 'ArrowLeft' || e.key === 'ArrowUp'){
+        e.preventDefault();
+        const prev = all[(i-1 + all.length) % all.length];
+        prev.focus();
+        prev.classList.add('focus');
+        setTimeout(()=>prev.classList.remove('focus'),200);
+      }
+    }
+  }
+});
+
+/* After drop: scoring and win check */
+function updateAfterDrop(piece, slot){
+  if(!piece || !slot) return;
+  if(piece.dataset.id === slot.dataset.id){
+    score += 10;
+    document.getElementById('msg').textContent = 'Good!';
+  } else {
+    score -= 2;
+    document.getElementById('msg').textContent = 'Try again';
+  }
+  document.getElementById('score').textContent = score;
+  checkWin();
+}
+
+function checkWin(){
+  const slots = Array.from(document.querySelectorAll('.slot'));
+  const ok = slots.every(s => s.firstElementChild && s.firstElementChild.dataset.id === s.dataset.id);
+  if(ok){
+    document.getElementById('msg').textContent = 'Level cleared!';
+    level++;
+    if(level>MAX_LEVEL) { document.getElementById('msg').textContent = 'You finished all levels!'; return; }
+    score += 50;
+    setTimeout(()=>setup(level),800);
+  }
+}
+
+/* Controls */
+document.getElementById('restart').addEventListener('click', ()=>{ level=1; score=0; setup(level); document.getElementById('score').textContent=score; });
+
+setup(level);
+</script>
+</body>
+</html>
